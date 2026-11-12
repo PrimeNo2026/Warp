@@ -1,0 +1,65 @@
+name: Build SpawnHome
+
+on:
+  push:
+    paths:
+      - 'SpawnHome.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Java 25 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Zip entpacken
+        run: |
+          if [ ! -f SpawnHome.zip ]; then
+            echo "SpawnHome.zip wurde im Repository nicht gefunden"
+            exit 1
+          fi
+          rm -rf _build
+          mkdir _build
+          unzip -q SpawnHome.zip -d _build
+          POM=$(find _build -name pom.xml | head -n 1)
+          if [ -z "$POM" ]; then
+            echo "pom.xml in der Zip nicht gefunden"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$(dirname "$POM")" >> "$GITHUB_ENV"
+
+      - name: Mit Maven bauen
+        run: |
+          cd "$PROJECT_DIR"
+          mvn -B package
+
+      - name: JAR bereitstellen
+        run: |
+          JAR=$(ls "$PROJECT_DIR"/target/SpawnHome-*.jar | head -n 1)
+          if [ -z "$JAR" ]; then
+            echo "Keine JAR gefunden"
+            exit 1
+          fi
+          cp "$JAR" "$GITHUB_WORKSPACE/"
+          NAME=$(basename "$JAR")
+          echo "JAR_NAME=$NAME" >> "$GITHUB_ENV"
+          VERSION="${NAME#SpawnHome-}"
+          echo "VERSION=${VERSION%.jar}" >> "$GITHUB_ENV"
+
+      - name: Release erstellen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}-build${{ github.run_number }}
+          name: SpawnHome ${{ env.VERSION }} (Build ${{ github.run_number }})
+          files: ${{ env.JAR_NAME }}
+          generate_release_notes: true
